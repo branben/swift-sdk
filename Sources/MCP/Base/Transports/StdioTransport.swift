@@ -121,6 +121,11 @@ import struct Foundation.Data
                 guard result >= 0 else {
                     throw MCPError.transportError(Errno(rawValue: CInt(errno)))
                 }
+<<<<<<< HEAD
+=======
+                return DescriptorState(
+                    flags: flags, device: UInt64(truncatingIfNeeded: status.st_dev), inode: UInt64(truncatingIfNeeded: status.st_ino))
+>>>>>>> 619a6bb (fix(StdioTransport): don't trap on socketpair stdio (st_dev == -1))
             #else
                 // For platforms where non-blocking operations aren't supported
                 throw MCPError.internalError(
@@ -128,6 +133,23 @@ import struct Foundation.Data
             #endif
         }
 
+<<<<<<< HEAD
+=======
+        private func restoreFlags(_ state: DescriptorState, for fileDescriptor: FileDescriptor) {
+            guard state.flags & O_NONBLOCK == 0 else { return }
+            var status = stat()
+            guard fstat(fileDescriptor.rawValue, &status) == 0,
+                UInt64(truncatingIfNeeded: status.st_dev) == state.device,
+                UInt64(truncatingIfNeeded: status.st_ino) == state.inode
+            else { return }
+            let currentFlags = fcntl(fileDescriptor.rawValue, F_GETFL)
+            guard currentFlags >= 0 else { return }
+            if fcntl(fileDescriptor.rawValue, F_SETFL, currentFlags & ~O_NONBLOCK) < 0 {
+                logger.warning("Failed to restore file descriptor blocking mode")
+            }
+        }
+
+>>>>>>> 619a6bb (fix(StdioTransport): don't trap on socketpair stdio (st_dev == -1))
         /// Continuous loop that reads and processes incoming messages
         ///
         /// This method runs in the background while the transport is connected,

@@ -1052,3 +1052,218 @@ struct StatelessHTTPServerTransportTests {
         #expect(response.statusCode == 500)
     }
 }
+
+// MARK: - HTTPContextProviding / Server.currentHandlerContext
+
+@Suite("Server.currentHandlerContext Tests")
+struct ServerHandlerContextTests {
+
+    // MARK: Stateful transport — HTTPContextProviding
+
+    @Test("Stateful: httpRequestContext returns in-flight request, cleared after response")
+    func testStatefulContextLifecycle() async throws {
+        let sessionID = "test-session"
+        let transport = makeStatefulTransport(
+            sessionIDGenerator: FixedSessionIDGenerator(sessionID: sessionID)
+        )
+        _ = try await initializeSession(transport: transport, sessionID: sessionID)
+
+        // POST a tools/list request with a distinctive Authorization header and path.
+        let body = makeRequestBody(id: "42", method: "tools/list")
+        let httpRequest = HTTPRequest(
+            method: "POST",
+            headers: [
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+                "Mcp-Session-Id": sessionID,
+                "Authorization": "Bearer token-xyz",
+            ],
+            body: body,
+            path: "/mcp"
+        )
+        let response = await transport.handleRequest(httpRequest)
+        #expect(response.statusCode == 200)
+
+        // In-flight: context surfaces through the protocol lookup.
+        let inFlight = await transport.httpRequestContext(for: .string("42"))
+        #expect(inFlight != nil)
+        #expect(inFlight?.header("Authorization") == "Bearer token-xyz")
+        #expect(inFlight?.path == "/mcp")
+
+        // Drain the SSE stream in the background so the response routes cleanly.
+        if case .stream(let stream, _) = response {
+            Task { for try await _ in stream {} }
+        }
+
+        // Send the response — transport clears the context alongside the SSE map.
+        try await transport.send(makeResponseBody(id: "42"))
+        try await Task.sleep(for: .milliseconds(50))
+
+        let afterResponse = await transport.httpRequestContext(for: .string("42"))
+        #expect(afterResponse == nil)
+    }
+
+    @Test("Stateful: context cleared on session termination")
+    func testStatefulContextClearedOnTerminate() async throws {
+        let sessionID = "term-session"
+        let transport = makeStatefulTransport(
+            sessionIDGenerator: FixedSessionIDGenerator(sessionID: sessionID)
+        )
+        _ = try await initializeSession(transport: transport, sessionID: sessionID)
+
+        // Register an in-flight request to populate the context map.
+        let body = makeRequestBody(id: "7", method: "tools/list")
+        _ = await transport.handleRequest(
+            makeStatefulPOSTRequest(
+                body: body,
+                sessionID: sessionID,
+                authorization: "Bearer keep"
+            )
+        )
+        #expect(await transport.httpRequestContext(for: .string("7")) != nil)
+
+        // DELETE terminates the session.
+        _ = await transport.handleRequest(makeDELETERequest(sessionID: sessionID))
+
+        #expect(await transport.httpRequestContext(for: .string("7")) == nil)
+    }
+
+    // MARK: Stateless transport — HTTPContextProviding
+
+    @Test("Stateless: context available during handling, cleared after response")
+    func testStatelessContextLifecycle() async throws {
+        let transport = makeStatelessTransport()
+        try await transport.connect()
+
+        let httpRequest = HTTPRequest(
+            method: "POST",
+            headers: [
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": "Bearer stateless-token",
+            ],
+            body: makeRequestBody(id: "99", method: "tools/list"),
+            path: "/mcp"
+        )
+
+        // handleRequest blocks until a response is sent — run it concurrently.
+        let handleTask = Task { await transport.handleRequest(httpRequest) }
+
+        // Give the handler time to register its waiter (and store the context).
+        try await Task.sleep(for: .milliseconds(50))
+
+        let inFlight = await transport.httpRequestContext(for: .string("99"))
+        #expect(inFlight != nil)
+        #expect(inFlight?.header("Authorization") == "Bearer stateless-token")
+        #expect(inFlight?.path == "/mcp")
+
+        // Send the response to unblock the waiter.
+        try await transport.send(makeResponseBody(id: "99"))
+        _ = await handleTask.value
+
+        let afterResponse = await transport.httpRequestContext(for: .string("99"))
+        #expect(afterResponse == nil)
+
+        await transport.disconnect()
+    }
+
+    @Test("Stateless: unknown request id returns nil")
+    func testStatelessContextUnknownID() async throws {
+        let transport = makeStatelessTransport()
+        try await transport.connect()
+        let none = await transport.httpRequestContext(for: .string("does-not-exist"))
+        #expect(none == nil)
+        await transport.disconnect()
+    }
+
+    // MARK: Server integration — end-to-end
+
+    @Test("Server handler reads HTTP context via Server.currentHandlerContext")
+    func testServerHandlerReadsHTTPContext() async throws {
+        actor Captured {
+            var auth: String?
+            var path: String?
+            var id: ID?
+            func record(auth: String?, path: String?, id: ID?) {
+                self.auth = auth
+                self.path = path
+                self.id = id
+            }
+        }
+        let captured = Captured()
+
+        let transport = makeStatelessTransport()
+        let server = Server(name: "TestServer", version: "1.0")
+
+        await server.withMethodHandler(CallTool.self) { _ in
+            let ctx = Server.currentHandlerContext
+            await captured.record(
+                auth: ctx?.httpContext?.header("Authorization"),
+                path: ctx?.httpContext?.path,
+                id: ctx?.id
+            )
+            return CallTool.Result(content: [.text(text: "ok", annotations: nil, _meta: nil)])
+        }
+
+        try await server.start(transport: transport)
+        defer { Task { await server.stop() } }
+
+        let body = try JSONSerialization.data(withJSONObject: [
+            "jsonrpc": "2.0",
+            "id": "call-1",
+            "method": "tools/call",
+            "params": ["name": "whoami"] as [String: Any],
+        ])
+        let httpRequest = HTTPRequest(
+            method: "POST",
+            headers: [
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": "Bearer server-integration-token",
+            ],
+            body: body,
+            path: "/mcp"
+        )
+
+        let httpResponse = await transport.handleRequest(httpRequest)
+        #expect(httpResponse.statusCode == 200)
+
+        #expect(await captured.auth == "Bearer server-integration-token")
+        #expect(await captured.path == "/mcp")
+        #expect(await captured.id == .string("call-1"))
+    }
+
+    @Test("Non-HTTP transport yields nil httpContext")
+    func testNonHTTPTransportNilContext() async throws {
+        actor Captured {
+            var httpContext: HTTPRequest?
+            var sawDispatch = false
+            func set(_ v: HTTPRequest?) { httpContext = v; sawDispatch = true }
+        }
+        let captured = Captured()
+
+        let transport = MockTransport()
+        let server = Server(name: "TestServer", version: "1.0")
+
+        // Start first — `start` calls registerDefaultHandlers which would otherwise
+        // clobber our override.
+        try await server.start(transport: transport)
+
+        // Override the Ping handler so we can observe the task-local during dispatch.
+        await server.withMethodHandler(Ping.self) { _ in
+            await captured.set(Server.currentHandlerContext?.httpContext)
+            return Empty()
+        }
+
+        try await transport.queue(request: Ping.request(.init()))
+
+        // Wait for dispatch.
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(await captured.sawDispatch == true)
+        #expect(await captured.httpContext == nil)
+
+        await server.stop()
+        await transport.disconnect()
+    }
+}

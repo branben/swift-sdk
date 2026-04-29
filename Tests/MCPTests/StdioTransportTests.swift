@@ -125,3 +125,38 @@ struct StdioTransportTests {
         await transport.disconnect()
     }
 }
+
+@Suite("StdioTransport Socketpair Regression (issue #327)")
+struct StdioTransportSocketpairRegressionTests {
+    /// Minimal socketpair using pipes for macOS testing
+    private actor SocketpairPair {
+        let readEnd: CInt
+        let writeEnd: CInt
+
+        init() {
+            let fds = try! FileDescriptor.pipe()
+            self.readEnd = fds.readEnd.rawValue
+            self.writeEnd = fds.writeEnd.rawValue
+        }
+
+        deinit {
+            close(readEnd)
+            close(writeEnd)
+        }
+    }
+
+    @Test("StdioTransport does not trap on socketpair (st_dev == -1)")
+    func testStdioTransportSocketpairNoTrap() async throws {
+        let pair = SocketpairPair()
+        defer { close(pair.readEnd); close(pair.writeEnd) }
+
+        let transport = StdioTransport(
+            input: FileDescriptor(rawValue: pair.readEnd),
+            output: FileDescriptor(rawValue: pair.writeEnd),
+            logger: nil
+        )
+
+        try await transport.connect()
+        await transport.disconnect()
+    }
+}

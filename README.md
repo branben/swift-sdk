@@ -41,6 +41,7 @@ of the MCP specification.
   - [Logging](#logging-1)
   - [Progress Tracking](#progress-tracking-1)
   - [Initialize Hook](#initialize-hook)
+  - [HTTP Request Context in Handlers](#http-request-context-in-handlers)
   - [Graceful Shutdown](#graceful-shutdown)
 - [Transports](#transports)
 - [Authentication](#authentication)
@@ -1183,6 +1184,35 @@ try await server.start(transport: transport) { clientInfo, clientCapabilities in
     // If the hook completes without throwing, initialization succeeds
 }
 ```
+
+### HTTP Request Context in Handlers
+
+When a server is connected over `StatefulHTTPServerTransport` or `StatelessHTTPServerTransport`,
+method handlers can observe the originating HTTP request (headers, body, path, method) via
+`Server.currentHandlerContext` — a task-local set automatically before each handler runs:
+
+```swift
+await server.withMethodHandler(CallTool.self) { params in
+    let httpRequest = Server.currentHandlerContext?.httpContext
+    let authHeader = httpRequest?.headers["Authorization"]
+    // …use the header to scope the response, audit, etc.
+    return .init(content: [.text("ok")], isError: false)
+}
+```
+
+`httpContext` is `nil` for transports that don't carry HTTP context (e.g. `StdioTransport`,
+`InMemoryTransport`) and for handlers reached off the dispatch path.
+
+Task-locals are not inherited by `Task.detached`. If you spawn a detached task from a handler,
+capture the context up front:
+
+```swift
+let ctx = Server.currentHandlerContext
+Task.detached { await doWork(with: ctx?.httpContext) }
+```
+
+Custom HTTP transports can opt in by conforming to `HTTPContextProviding` and returning the
+`HTTPRequest` for a given JSON-RPC id while it is in flight.
 
 ### Graceful Shutdown
 

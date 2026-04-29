@@ -207,6 +207,24 @@ struct SSEEvent: Sendable {
     }
 }
 
+// MARK: - HTTP Context Providing
+
+/// A transport that can surface the originating HTTP request for an in-flight JSON-RPC
+/// request, keyed by its JSON-RPC id.
+///
+/// The server consults this during dispatch so that registered method handlers can
+/// observe the HTTP request that triggered them (headers, auth, path, body) via
+/// ``Server/currentHandlerContext``, without changing the `withMethodHandler` signature.
+///
+/// Only JSON-RPC *requests* (with an id) are addressable — notifications have no id and
+/// are not correlated.
+public protocol HTTPContextProviding: Sendable {
+    /// Returns the HTTP request associated with the given JSON-RPC id, if the
+    /// transport still has it on hand. Implementations must return `nil` once the
+    /// corresponding response has been delivered or the session has terminated.
+    func httpRequestContext(for id: ID) async -> HTTPRequest?
+}
+
 // MARK: - JSON-RPC Message Classification
 
 /// Classifies a raw JSON-RPC message for routing purposes.
