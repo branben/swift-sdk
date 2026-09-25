@@ -1,1 +1,76 @@
+# MCP conformance baseline
+#
+# Numbers are only meaningful with BOTH the suite version and the spec revision
+# pinned. The scenario set changes between suite releases, so a figure from one
+# suite is not comparable to another. Regenerate with:
+#
+#   ./scripts/run-conformance.sh --mode server
+#   SUITE_VERSION=0.2.0-alpha.11 SPEC_VERSION=2026-07-28 \
+#     ./scripts/run-conformance.sh --mode server
+#
+# Measured 2026-09-25 on macOS 26.5.1 (arm64), sequential, one scenario at a
+# time, port 3001 exclusive. Deterministic: three consecutive 2025-11-25 runs
+# returned an identical 32/32.
+
 client: []
+
+server:
+  # ── Declared spec. This is the SDK's actual target (Versioning.swift:12). ──
+  # Quoted: bare 2025-11-25 is auto-parsed by YAML into a date object, so a
+  # consumer doing a string key lookup against SPEC_VERSION misses the entry.
+  "2025-11-25":
+    suite: "@modelcontextprotocol/conformance@0.1.16"
+    status: clean
+    passed: 32
+    failed: 0
+    # All 32 scenarios pass. Earlier reports of 2-3 failures here were an
+    # artifact of the old harness running scenarios in parallel: a single
+    # server cannot hold several server->client round trips open at once, the
+    # later ones timed out (-32001), and the victim set changed every run.
+    # Sequential execution passes them all.
+
+  # ── Current stable upstream. Not implemented; recorded as a target. ──
+  "2026-07-28":
+    suite: "@modelcontextprotocol/conformance@0.2.0-alpha.11"
+    status: not-implemented
+    passed: 1
+    failed: 61
+    provisional: true
+    # PROVISIONAL: an alpha suite whose scenario set is still moving. Re-measure
+    # before treating any figure here as a regression threshold.
+    #
+    # The 61 failures are NOT 61 independent defects. Two clusters:
+    #
+    #   1. Miswired session validation — 29 scenarios
+    #      Every non-initialize request is rejected as a bad request. Note
+    #      this is NOT an SDK defect: SessionValidator
+    #      (Sources/MCP/Base/Transports/HTTPServer/HTTPRequestValidation.swift:201)
+    #      is correct for stateful transport and must stay. The bug is that the
+    #      CONFORMANCE SERVER registers it while running a stateless transport
+    #      (sessionID nil) — Sources/MCPConformance/Server/main.swift:501 — so
+    #      the guard can never be satisfied and rejects everything. Two error
+    #      strings come from this one miswiring: "Session not initialized"
+    #      (line 209) and "Missing Mcp-Session-Id header" (line 219).
+    #      Fixing this is a one-line removal in the test harness, NOT an SDK
+    #      change — and it will NOT clear cluster 2.
+    #
+    #   2. Removed and unbuilt features — 32 scenarios
+    #      Behavior the spec deleted (ping, logging/setLevel, SSE polling and
+    #      multi-stream, resources/subscribe) and behavior it added that was
+    #      never implemented (tasks/*, input-required-result-*, caching ttlMs,
+    #      json-schema-2020-12, elicitation/schema changes).
+    #
+    # The single pass is input-required-result-validate-input.
+    #
+    # Migration order implied by the clusters: drop the session guard, then
+    # remove the deleted methods, then build the added ones. Fixing cluster 1
+    # alone will NOT turn these 61 green.
+
+# Removed by 2026-07-28, still present in the SDK at this baseline:
+#   Mcp-Session-Id header, initialize handshake, ping, logging/setLevel,
+#   roots_list_changed, SSE Last-Event-ID resume.
+# Added by 2026-07-28, not implemented at this baseline:
+#   server/discover, subscriptions/listen, resultType, input_required,
+#   Mcp-Method, ttlMs / cacheScope.
+# 2026-07-28 reserves -32002 and forbids implementations emitting it; the
+# agreed Swift cancellation result remains -32800.
