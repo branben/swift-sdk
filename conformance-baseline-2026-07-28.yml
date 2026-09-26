@@ -1,0 +1,104 @@
+# Known-failure baseline for spec 2026-07-28 (current stable upstream)
+#
+# NOT the default. Select it explicitly:
+#
+#   BASELINE_FILE=conformance-baseline-2026-07-28.yml \
+#   SUITE_VERSION=0.2.0-alpha.11 SPEC_VERSION=2026-07-28 \
+#     ./scripts/run-conformance.sh --mode server
+#
+# Every name below fails TODAY, recorded so the suite can exit 0 and show
+# migration progress instead of a wall of red. Remove a name the moment it
+# passes — a stale entry HIDES A REGRESSION, which is worse than the failure
+# it papers over.
+#
+# Measured 2026-09-25, scripts/run-conformance.sh against
+# @modelcontextprotocol/conformance@0.2.0-alpha.11, sequential:
+#     1 passed, 39 failed, 22 skipped (62 scenarios total)
+# PROVISIONAL: an alpha suite whose scenario set is still moving. Re-measure
+# before treating this as a regression threshold.
+#
+# THE 39 FAILURES ARE TWO CLUSTERS, NOT 39 DEFECTS.
+#
+#   1. Session routing — 29 of 39, ALL from one mechanism:
+#      Sources/MCPConformance/Server/HTTPApp.swift:188-191 rejects any
+#      non-initialize request arriving without an Mcp-Session-Id header,
+#      BEFORE request validation runs. handleHTTPRequest (:157) routes by
+#      sessions[sessionID]; only an initialize POST may create one (:176-182).
+#      2026-07-28 removed sessions, so every other request hits :188.
+#      This is a harness design gap, NOT an SDK defect. SessionValidator
+#      (HTTPRequestValidation.swift:201) is CORRECT for stateful transport and
+#      must stay, as must StatefulHTTPServerTransport and the README example.
+#      Verified: removing SessionValidator from MCPConformance/Server/main.swift
+#      changed the result by exactly ZERO scenarios, because that pipeline never
+#      runs for these requests. Do not "fix" this by weakening the validator.
+#
+#   2. Independent — 10 scenarios, genuinely separate work:
+#      caching, dns-rebinding-protection, http-custom-header-server-validation,
+#      http-header-validation, input-required-result-multi-round,
+#      input-required-result-tampered-state, json-schema-2020-12,
+#      server-sse-multiple-streams, server-stateless, tools-call-error
+#
+# A THIRD BUCKET IS NOT A FAILURE. 22 scenarios are SKIPPED, not failing: the
+# suite marks them inapplicable at 2026-07-28 (ping, logging-set-level,
+# resources/subscribe, all tasks/*, tools-call-sampling, server-initialize,
+# server-session-lifecycle, and others — the spec removed them). They print
+# "SKIPPED: ... not applicable" and no Passed: line, so an earlier harness
+# counted them as failures and inflated the total to 61. They are absent from
+# the list below deliberately. Whether the SDK should REMOVE these methods is
+# an open question, not a settled one — a superset may be legal.
+#
+# Migration order: make the harness serve 2026-07-28 without sessions, then
+# decide remove-vs-keep for the deleted methods, then build the additions.
+# Fixing cluster 1 alone will NOT clear cluster 2.
+#
+# Removed by 2026-07-28, still present in the SDK:
+#   Mcp-Session-Id, initialize handshake, ping, logging/setLevel,
+#   roots_list_changed, SSE Last-Event-ID resume.
+# Added by 2026-07-28, not implemented:
+#   server/discover, subscriptions/listen, resultType, input_required,
+#   Mcp-Method, ttlMs / cacheScope.
+# 2026-07-28 reserves -32002 and forbids emitting it; the agreed Swift
+# cancellation result remains -32800.
+
+client: []
+
+server:
+  - caching
+  - completion-complete
+  - dns-rebinding-protection
+  - http-custom-header-server-validation
+  - http-header-validation
+  - input-required-result-basic-elicitation
+  - input-required-result-basic-list-roots
+  - input-required-result-basic-sampling
+  - input-required-result-capability-check
+  - input-required-result-ignore-extra-params
+  - input-required-result-missing-input-response
+  - input-required-result-multi-round
+  - input-required-result-multiple-input-requests
+  - input-required-result-non-tool-request
+  - input-required-result-request-state
+  - input-required-result-result-type
+  - input-required-result-tampered-state
+  - input-required-result-unsupported-methods
+  - json-schema-2020-12
+  - prompts-get-embedded-resource
+  - prompts-get-simple
+  - prompts-get-with-args
+  - prompts-get-with-image
+  - prompts-list
+  - resources-list
+  - resources-read-binary
+  - resources-read-text
+  - resources-templates-read
+  - sep-2164-resource-not-found
+  - server-sse-multiple-streams
+  - server-stateless
+  - tools-call-audio
+  - tools-call-embedded-resource
+  - tools-call-error
+  - tools-call-image
+  - tools-call-mixed-content
+  - tools-call-simple-text
+  - tools-call-with-progress
+  - tools-list

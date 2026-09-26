@@ -111,6 +111,7 @@ list_scenarios() {
 # passes when run alone. Running them one at a time is what makes the result
 # deterministic; a scenario failing ALONE is a real finding.
 FAILED_SCENARIOS=()
+SKIPPED_SCENARIOS=()
 run_scenario() {
   local side="$1" scenario="$2"
   # The two sides take different options and reject the other's: client mode
@@ -133,7 +134,17 @@ run_scenario() {
   # Single-scenario runs report "Passed: N/N, X failed", NOT the "Total: ..." line
   # that a multi-scenario suite run prints. Matching only the suite form makes
   # every scenario look like a failure.
-  if grep -qE '^Passed: [0-9]+/[0-9]+, 0 failed' <<<"$out"; then
+  #
+  # SKIPPED must be classified before either verdict. The suite skips a scenario
+  # whose applicability window excludes the requested spec ("SKIPPED: scenario
+  # 'ping' is not applicable at spec version 2026-07-28 (introduced in
+  # 2025-06-18, removed in 2026-07-28)") and prints no Passed: line at all.
+  # Counting that as a failure inflates the total with scenarios the
+  # implementation is not even asked to support.
+  if grep -qE '^SKIPPED: scenario' <<<"$out"; then
+    SKIPPED_SCENARIOS+=("$scenario")
+    log_info "  SKIP  $scenario  (not applicable at $SPEC_VERSION)"
+  elif grep -qE '^Passed: [0-9]+/[0-9]+, 0 failed' <<<"$out"; then
     log_info "  PASS  $scenario"
   else
     log_warn "  FAIL  $scenario"
@@ -191,8 +202,11 @@ fi
 # ── Summary ────────────────────────────────────────────────────────────────
 echo
 log_info "=== $SPEC_VERSION | $CONFORMANCE_PKG ==="
+if [[ ${#SKIPPED_SCENARIOS[@]} -gt 0 ]]; then
+  log_info "${#SKIPPED_SCENARIOS[@]} scenario(s) skipped — not applicable at $SPEC_VERSION"
+fi
 if [[ ${#FAILED_SCENARIOS[@]} -eq 0 ]]; then
-  log_info "All scenarios passed at $SPEC_VERSION"
+  log_info "All applicable scenarios passed at $SPEC_VERSION"
   exit 0
 fi
 
