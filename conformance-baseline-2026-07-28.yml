@@ -14,12 +14,20 @@
 # Measured 2026-09-25, scripts/run-conformance.sh against
 # @modelcontextprotocol/conformance@0.2.0-alpha.11, sequential:
 #     1 passed, 39 failed, 22 skipped (62 scenarios total)
+#
+# DENOMINATOR NOTE (corrected 2026-09-26): the FROZEN requirements file lists
+# 37 scored SERVER scenarios. Of the 39 raw failures, 36 are in that scored
+# set (29 session-routing + 7 independent); the other 3 raw failures are
+# client/other scenarios outside it. So "29 of 39" above understates the
+# gate: within the scored set it is 29 of 36, and 7 scenarios remain
+# independent. Previous revisions of this file said "10 independent",
+# which double-counted the 3 non-server failures.
 # PROVISIONAL: an alpha suite whose scenario set is still moving. Re-measure
 # before treating this as a regression threshold.
 #
 # THE 39 FAILURES ARE TWO CLUSTERS, NOT 39 DEFECTS.
 #
-#   1. Session routing — 29 of 39, ALL from one mechanism:
+#   1. Session routing — 29 of the 36 scored failures, ALL from one mechanism:
 #      Sources/MCPConformance/Server/HTTPApp.swift:188-191 rejects any
 #      non-initialize request arriving without an Mcp-Session-Id header,
 #      BEFORE request validation runs. handleHTTPRequest (:157) routes by
@@ -32,7 +40,7 @@
 #      changed the result by exactly ZERO scenarios, because that pipeline never
 #      runs for these requests. Do not "fix" this by weakening the validator.
 #
-#   2. Independent — 10 scenarios, genuinely separate work:
+#   2. Independent — 7 scored scenarios, genuinely separate work:
 #      caching, dns-rebinding-protection, http-custom-header-server-validation,
 #      http-header-validation, input-required-result-multi-round,
 #      input-required-result-tampered-state, json-schema-2020-12,
