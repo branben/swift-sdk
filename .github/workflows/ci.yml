@@ -11,40 +11,32 @@ permissions:
   pull-requests: write
 
 jobs:
-  test:
+  test-ubuntu:
     timeout-minutes: 10
-    strategy:
-      matrix:
-        os: [macos-latest, ubuntu-latest]
-        swift-version:
-          - 6.1.0
-
-    runs-on: ${{ matrix.os }}
-    name: Test (${{ matrix.os }}, Swift ${{ matrix.swift-version }})
+    runs-on: ubuntu-latest
+    container: swift:6.1.2-noble
+    name: Test (ubuntu-latest, Swift 6.1.2)
 
     steps:
       - uses: actions/checkout@v4
-
       - name: Prepare Linux apt dependencies
-        if: matrix.os == 'ubuntu-latest'
         run: |
-          sudo -n apt-get update
-          sudo -n apt-get install -y --no-install-recommends libcurl4-openssl-dev
-
-      - name: Setup Swift on Linux
-        if: matrix.os == 'ubuntu-latest'
-        uses: vapor/swiftly-action@v0.2
-        with:
-          toolchain: ${{ matrix.swift-version }}
-      - name: Setup Swift on macOS
-        if: matrix.os == 'macos-latest'
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: ${{ matrix.swift-version }}
-
+          apt-get update
+          apt-get install -y --no-install-recommends libcurl4-openssl-dev
       - name: Build
         run: swift build -v
+      - name: Run tests
+        run: swift test -v
 
+  test-macos:
+    timeout-minutes: 10
+    runs-on: macos-latest
+    name: Test (macos-latest, Swift 6.3)
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build -v
       - name: Run tests
         run: swift test -v
 
@@ -55,11 +47,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: 6.1.0
 
       - name: Build Swift executables
         run: |
@@ -103,9 +90,6 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.1.0"
       - name: Build Documentation
         run: swift package generate-documentation --target MCP --warnings-as-errors
 
