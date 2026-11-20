@@ -35,10 +35,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Swift on macOS
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: 6.3
       - name: Build
         run: swift build -v
       - name: Run tests
@@ -51,11 +47,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: 6.3
 
       - name: Build Swift executables
         run: |
@@ -99,9 +90,6 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.3"
       - name: Build Documentation
         run: swift package generate-documentation --target MCP --warnings-as-errors
 
